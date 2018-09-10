@@ -46,6 +46,12 @@ func (tp TimePeriod) String() string {
 	return fmt.Sprintf("%s-%s", tp.From.Format(Kitchen24), tp.To.Format(Kitchen24))
 }
 
+func (tp TimePeriod) MarshalJSON() ([]byte, error) {
+	formatted := fmt.Sprintf("\"%02d:%02d-%02d:%02d\"",
+		tp.From.Hour(), tp.From.Minute(), tp.To.Hour(), tp.To.Minute())
+	return []byte(formatted), nil
+}
+
 // ParseWeekdays takes a comma-separated list of abbreviated weekdays (e.g. sat,sun) and turns them
 // into a slice of time.Weekday. It ignores any whitespace and any invalid weekdays.
 func ParseWeekdays(weekdays string) []time.Weekday {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"encoding/json"
 )
 
 type Suite struct {
@@ -298,6 +299,17 @@ func (suite *Suite) TestParseTimePeriods() {
 
 		suite.Equal(tt.expected, timePeriods)
 	}
+}
+
+func (suite *Suite) TestMarshalTimePeriod() {
+	period := "08:00-16:00"
+	timePeriods, err := ParseTimePeriods(period)
+	suite.NoError(err)
+
+	serialized, err := json.Marshal(timePeriods)
+	suite.NoError(err)
+
+	suite.Equal("[\"08:00-16:00\"]", string(serialized))
 }
 
 func (suite *Suite) TestParseDates() {
