@@ -222,6 +222,37 @@
   version = "v1.2.1"
 
 [[projects]]
+  name = "github.com/tommy351/zap-stackdriver"
+  packages = ["."]
+  revision = "1a02ac0e690e01f2359f1998ba3f25d7432b80f9"
+  version = "v0.1.2"
+
+[[projects]]
+  name = "go.uber.org/atomic"
+  packages = ["."]
+  revision = "1ea20fb1cbb1cc08cbd0d913a96dead89aa18289"
+  version = "v1.3.2"
+
+[[projects]]
+  name = "go.uber.org/multierr"
+  packages = ["."]
+  revision = "3c4937480c32f4c13a875a1829af76c98ca3d40a"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "go.uber.org/zap"
+  packages = [
+    ".",
+    "buffer",
+    "internal/bufferpool",
+    "internal/color",
+    "internal/exit",
+    "zapcore"
+  ]
+  revision = "ff33455a0e382e8a81d14dd7c922020b6b5e7982"
+  version = "v1.9.1"
+
+[[projects]]
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
   revision = "9419663f5a44be8b34ca85f08abc5fe1be11f8a3"
@@ -477,6 +508,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "8aa4f0d79f74c8737ec26cfc80b804d0b472d7b42e7d84328b4000c1e4d4b2a3"
+  inputs-digest = "e9a10b83c0a91323ab759c10427f724b739e50d70754e97ecbb93f40d692f775"
   solver-name = "gps-cdcl"
   solver-version = 1

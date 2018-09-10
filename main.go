@@ -46,6 +46,8 @@ var (
 	metricsAddress     string
 	exec               string
 	execContainer      string
+	logFormat          string
+	logFields          string
 )
 
 func init() {
@@ -66,6 +68,8 @@ func init() {
 	kingpin.Flag("exec", "Execute the given terminal command on victim pods, rather than deleting pods, eg killall -9 bash").StringVar(&exec)
 	kingpin.Flag("exec-container", "Name of container to run --exec command in, defaults to first container in spec").Default("").StringVar(&execContainer)
 	kingpin.Flag("debug", "Enable debug logging.").BoolVar(&debug)
+	kingpin.Flag("log-format", "'plain' or 'json'").Default("plain").StringVar(&logFormat)
+	kingpin.Flag("log-fields", "key=value, comma separated list of fields to include in every log message").Default("").StringVar(&logFields)
 	kingpin.Flag("metrics-address", "Listening address for metrics handler").Default(":8080").StringVar(&metricsAddress)
 }
 
@@ -73,11 +77,9 @@ func main() {
 	kingpin.Version(version)
 	kingpin.Parse()
 
-	if debug {
-		log.SetLevel(log.DebugLevel)
-	}
+	logger := chaoskube.SetupLogging(debug, logFormat, logFields)
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"labels":             labelString,
 		"annotations":        annString,
 		"namespaces":         nsString,
@@ -96,29 +98,29 @@ func main() {
 		"metricsAddress":     metricsAddress,
 	}).Info("reading config")
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"version":  version,
 		"dryRun":   dryRun,
 		"interval": interval,
 	}).Info("starting up")
 
-	config, err := newConfig()
+	config, err := newConfig(logger)
 	if err != nil {
-		log.WithField("err", err).Fatal("failed to determine k8s client config")
+		logger.WithField("err", err).Fatal("failed to determine k8s client config")
 	}
 
-	client, err := newClient(config)
+	client, err := newClient(config, logger)
 	if err != nil {
-		log.WithField("err", err).Fatal("failed to connect to cluster")
+		logger.WithField("err", err).Fatal("failed to connect to cluster")
 	}
 
 	var (
-		labelSelector = parseSelector(labelString)
-		annotations   = parseSelector(annString)
-		namespaces    = parseSelector(nsString)
+		labelSelector = parseSelector(labelString, logger)
+		annotations   = parseSelector(annString, logger)
+		namespaces    = parseSelector(nsString, logger)
 	)
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"labels":      labelSelector,
 		"annotations": annotations,
 		"namespaces":  namespaces,
@@ -128,20 +130,20 @@ func main() {
 	parsedWeekdays := util.ParseWeekdays(excludedWeekdays)
 	parsedTimesOfDay, err := util.ParseTimePeriods(excludedTimesOfDay)
 	if err != nil {
-		log.WithFields(log.Fields{
+		logger.WithFields(log.Fields{
 			"timesOfDay": excludedTimesOfDay,
 			"err":        err,
 		}).Fatal("failed to parse times of day")
 	}
 	parsedDaysOfYear, err := util.ParseDays(excludedDaysOfYear)
 	if err != nil {
-		log.WithFields(log.Fields{
+		logger.WithFields(log.Fields{
 			"daysOfYear": excludedDaysOfYear,
 			"err":        err,
 		}).Fatal("failed to parse days of year")
 	}
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"weekdays":   parsedWeekdays,
 		"timesOfDay": parsedTimesOfDay,
 		"daysOfYear": formatDays(parsedDaysOfYear),
@@ -149,14 +151,14 @@ func main() {
 
 	parsedTimezone, err := time.LoadLocation(timezone)
 	if err != nil {
-		log.WithFields(log.Fields{
+		logger.WithFields(log.Fields{
 			"timeZone": timezone,
 			"err":      err,
 		}).Fatal("failed to detect time zone")
 	}
 	timezoneName, offset := time.Now().In(parsedTimezone).Zone()
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"name":     timezoneName,
 		"location": parsedTimezone,
 		"offset":   offset / int(time.Hour/time.Second),
@@ -181,7 +183,7 @@ func main() {
 		parsedDaysOfYear,
 		parsedTimezone,
 		minimumAge,
-		log.StandardLogger(),
+		logger,
 		action,
 	)
 
@@ -203,7 +205,7 @@ func main() {
 		})
 		go func() {
 			if err := http.ListenAndServe(metricsAddress, nil); err != nil {
-				log.WithFields(log.Fields{
+				logger.WithFields(log.Fields{
 					"err": err,
 				}).Fatal("failed to start HTTP server")
 			}
@@ -227,14 +229,14 @@ func main() {
 	chaoskube.Run(ctx, ticker.C)
 }
 
-func newConfig() (*restclient.Config, error) {
+func newConfig(logger log.FieldLogger) (*restclient.Config, error) {
 	if kubeconfig == "" {
 		if _, err := os.Stat(clientcmd.RecommendedHomeFile); err == nil {
 			kubeconfig = clientcmd.RecommendedHomeFile
 		}
 	}
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"kubeconfig": kubeconfig,
 		"master":     master,
 	}).Debug("using cluster config")
@@ -247,7 +249,7 @@ func newConfig() (*restclient.Config, error) {
 	return config, nil
 }
 
-func newClient(config *restclient.Config) (*kubernetes.Clientset, error) {
+func newClient(config *restclient.Config, logger log.FieldLogger) (*kubernetes.Clientset, error) {
 	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -258,7 +260,7 @@ func newClient(config *restclient.Config) (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 
-	log.WithFields(log.Fields{
+	logger.WithFields(log.Fields{
 		"master":        config.Host,
 		"serverVersion": serverVersion,
 	}).Info("connected to cluster")
@@ -266,10 +268,10 @@ func newClient(config *restclient.Config) (*kubernetes.Clientset, error) {
 	return client, nil
 }
 
-func parseSelector(str string) labels.Selector {
+func parseSelector(str string, logger log.FieldLogger) labels.Selector {
 	selector, err := labels.Parse(str)
 	if err != nil {
-		log.WithFields(log.Fields{
+		logger.WithFields(log.Fields{
 			"selector": str,
 			"err":      err,
 		}).Fatal("failed to parse selector")
