@@ -47,7 +47,7 @@ type deletePod struct {
 func (s *deletePod) ApplyChaos(victim v1.Pod) error {
 	return s.client.CoreV1().Pods(victim.Namespace).Delete(victim.Name, nil)
 }
-func (s *deletePod) Name() string { return "terminate pod" }
+func (s *deletePod) Name() string { return "terminating pod" }
 
 var _ ChaosAction = &deletePod{}
 
@@ -63,10 +63,13 @@ type execOnPod struct {
 // Based on https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/exec.go
 func (s *execOnPod) ApplyChaos(pod v1.Pod) error {
 	var container string
-	if s.containerName != "" {
+	if s.containerName == "" {
 		for _, c := range pod.Spec.Containers {
-			container = c.Name;
+			container = c.Name
+			break
 		}
+	} else {
+		container = s.containerName
 	}
 
 	req := s.client.Post().

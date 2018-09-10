@@ -45,6 +45,7 @@ func (suite *Suite) TestNew() {
 		minimumAge         = time.Duration(42)
 	)
 
+	action := NewDeletePodAction(client)
 	chaoskube := New(
 		client,
 		labelSelector,
@@ -56,7 +57,7 @@ func (suite *Suite) TestNew() {
 		time.UTC,
 		minimumAge,
 		logger,
-		false,
+		action,
 	)
 	suite.Require().NotNil(chaoskube)
 
@@ -70,7 +71,7 @@ func (suite *Suite) TestNew() {
 	suite.Equal(time.UTC, chaoskube.Timezone)
 	suite.Equal(minimumAge, chaoskube.MinimumAge)
 	suite.Equal(logger, chaoskube.Logger)
-	suite.Equal(false, chaoskube.DryRun)
+	suite.Equal(action, chaoskube.Action)
 }
 
 // TestRunContextCanceled tests that a canceled context will exit the Run function.
@@ -221,7 +222,11 @@ func (suite *Suite) TestDeletePod() {
 		err := chaoskube.ApplyChaos(victim)
 		suite.Require().NoError(err)
 
-		suite.assertLog(log.InfoLevel, "terminating pod", log.Fields{"namespace": "default", "name": "foo"})
+		if tt.dryRun {
+			suite.assertLog(log.InfoLevel, "dry run", log.Fields{"namespace": "default", "name": "foo"})
+		} else {
+			suite.assertLog(log.InfoLevel, "terminating pod", log.Fields{"namespace": "default", "name": "foo"})
+		}
 		suite.assertCandidates(chaoskube, tt.remainingPods)
 	}
 }
@@ -547,8 +552,14 @@ func (suite *Suite) setupWithPods(labelSelector labels.Selector, annotations lab
 func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Selector, namespaces labels.Selector, excludedWeekdays []time.Weekday, excludedTimesOfDay []util.TimePeriod, excludedDaysOfYear []time.Time, timezone *time.Location, minimumAge time.Duration, dryRun bool) *Chaoskube {
 	logOutput.Reset()
 
+	client := fake.NewSimpleClientset()
+	action := NewDeletePodAction(client)
+	if dryRun {
+		action = NewDryRunAction()
+	}
+
 	return New(
-		fake.NewSimpleClientset(),
+		client,
 		labelSelector,
 		annotations,
 		namespaces,
@@ -558,7 +569,7 @@ func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Sele
 		timezone,
 		minimumAge,
 		logger,
-		dryRun,
+		action,
 	)
 }
 
