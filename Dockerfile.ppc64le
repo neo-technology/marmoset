@@ -12,7 +12,7 @@ RUN GOARCH=ppc64le go build -o /bin/chaoskube -v \
 
 # final image
 FROM ppc64le/alpine:3.6
-MAINTAINER Linki <linki+docker.com@posteo.de>
+MAINTAINER Jacob Davis-Hansson <jake@davis-hansson.com>
 
 COPY --from=builder /bin/chaoskube /bin/chaoskube
 

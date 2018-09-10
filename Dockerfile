@@ -12,7 +12,7 @@ RUN go build -o /bin/chaoskube -v \
 
 # final image
 FROM alpine:3.7
-MAINTAINER Linki <linki+docker.com@posteo.de>
+MAINTAINER Jacob Davis-Hansson <jake@davis-hansson.com>
 
 RUN apk --no-cache add ca-certificates dumb-init tzdata
 COPY --from=builder /bin/chaoskube /bin/chaoskube

@@ -56,6 +56,9 @@ metadata:
   labels:
     app: chaoskube
 spec:
+  selector:
+    matchLabels:
+      app: chaoskube
   replicas: 1
   template:
     metadata:
