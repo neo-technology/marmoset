@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/neo-technology/marmoset/chaoskube"
+	"github.com/neo-technology/marmoset/util"
 	"math/rand"
 	"net/http"
 	"os"
@@ -20,8 +22,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	restclient "k8s.io/client-go/rest"
 
-	"github.com/linki/chaoskube/chaoskube"
-	"github.com/linki/chaoskube/util"
 	"strings"
 )
 

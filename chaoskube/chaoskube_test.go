@@ -2,6 +2,7 @@ package chaoskube
 
 import (
 	"context"
+	"github.com/neo-technology/marmoset/util"
 	"math/rand"
 	"testing"
 	"time"
@@ -13,8 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/fake"
-
-	"github.com/linki/chaoskube/util"
 
 	"github.com/stretchr/testify/suite"
 )

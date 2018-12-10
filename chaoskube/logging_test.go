@@ -1,8 +1,8 @@
 package chaoskube_test
 
 import (
+	"github.com/neo-technology/marmoset/chaoskube"
 	"testing"
-	"github.com/linki/chaoskube/chaoskube"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/suite"
 	"os"

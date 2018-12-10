@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/neo-technology/marmoset/util"
 	"math/rand"
 	"time"
 
@@ -14,8 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
-
-	"github.com/linki/chaoskube/util"
 )
 
 // Chaoskube represents an instance of chaoskube
