@@ -18,7 +18,7 @@ func SetupLogging(debug bool, logFormat string, logFields string) log.FieldLogge
 	if logFormat == "json" {
 		logger.Formatter = &log.JSONFormatter{
 			FieldMap: log.FieldMap{
-				log.FieldKeyMsg: "message",
+				log.FieldKeyMsg:   "message",
 				log.FieldKeyLevel: "severity",
 			},
 		}

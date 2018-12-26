@@ -19,8 +19,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/tools/clientcmd"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"strings"
 )
@@ -41,13 +41,19 @@ var (
 	master             string
 	kubeconfig         string
 	interval           time.Duration
-	dryRun             bool
+	action             string
 	debug              bool
 	metricsAddress     string
 	exec               string
 	execContainer      string
 	logFormat          string
 	logFields          string
+)
+
+const (
+	ACTION_DRY_RUN    = "dry-run"
+	ACTION_DELETE_POD = "delete-pod"
+	ACTION_EXEC_POD   = "exec-pod"
 )
 
 func init() {
@@ -64,9 +70,9 @@ func init() {
 	kingpin.Flag("master", "The address of the Kubernetes cluster to target").StringVar(&master)
 	kingpin.Flag("kubeconfig", "Path to a kubeconfig file").StringVar(&kubeconfig)
 	kingpin.Flag("interval", "Interval between Pod terminations").Default("10m").DurationVar(&interval)
-	kingpin.Flag("dry-run", "If true, don't actually do anything.").Default("true").BoolVar(&dryRun)
-	kingpin.Flag("exec", "Execute the given terminal command on victim pods, rather than deleting pods, eg killall -9 bash").StringVar(&exec)
+	kingpin.Flag("exec", "Command to use in 'exec' action").StringVar(&exec)
 	kingpin.Flag("exec-container", "Name of container to run --exec command in, defaults to first container in spec").Default("").StringVar(&execContainer)
+	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod").Default(ACTION_DRY_RUN).StringVar(&action)
 	kingpin.Flag("debug", "Enable debug logging.").BoolVar(&debug)
 	kingpin.Flag("log-format", "'plain' or 'json'").Default("plain").StringVar(&logFormat)
 	kingpin.Flag("log-fields", "key=value, comma separated list of fields to include in every log message").Default("").StringVar(&logFields)
@@ -91,7 +97,7 @@ func main() {
 		"master":             master,
 		"kubeconfig":         kubeconfig,
 		"interval":           interval,
-		"dryRun":             dryRun,
+		"action":             action,
 		"exec":               exec,
 		"execContainer":      execContainer,
 		"debug":              debug,
@@ -100,7 +106,7 @@ func main() {
 
 	logger.WithFields(log.Fields{
 		"version":  version,
-		"dryRun":   dryRun,
+		"dryRun":   action == ACTION_DRY_RUN,
 		"interval": interval,
 	}).Info("starting up")
 
@@ -164,27 +170,35 @@ func main() {
 		"offset":   offset / int(time.Hour/time.Second),
 	}).Info("setting timezone")
 
-	var action chaoskube.ChaosAction
-	if dryRun {
-		action = chaoskube.NewDryRunAction()
-	} else if len(exec) > 0 {
-		action = chaoskube.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " "))
-	} else {
-		action = chaoskube.NewDeletePodAction(client)
+	var actionImpl chaoskube.PodAction
+	switch action {
+	case ACTION_DRY_RUN:
+		actionImpl = chaoskube.NewDryRunAction()
+	case ACTION_DELETE_POD:
+		actionImpl = chaoskube.NewDeletePodAction(client)
+	case ACTION_EXEC_POD:
+		actionImpl = chaoskube.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " "))
+	default:
+		panic(fmt.Sprintf("Unknown action: '%s'", action))
+	}
+
+	chaosSpec := &chaoskube.PodChaosSpec{
+		Action:      actionImpl,
+		Labels:      labelSelector,
+		Annotations: annotations,
+		Namespaces:  namespaces,
+		MinimumAge:  minimumAge,
+		Logger:      logger,
 	}
 
 	chaoskube := chaoskube.New(
 		client,
-		labelSelector,
-		annotations,
-		namespaces,
+		chaosSpec,
 		parsedWeekdays,
 		parsedTimesOfDay,
 		parsedDaysOfYear,
 		parsedTimezone,
-		minimumAge,
 		logger,
-		action,
 	)
 
 	if metricsAddress != "" {

@@ -27,7 +27,7 @@ func (suite *Suite) TestSetsDefaultFields() {
 	suite.Equal(os.Stdout, entry.Logger.Out)
 	suite.Equal(&log.JSONFormatter{
 		FieldMap: log.FieldMap{
-			log.FieldKeyMsg: "message",
+			log.FieldKeyMsg:   "message",
 			log.FieldKeyLevel: "severity",
 		},
 	}, entry.Logger.Formatter)
