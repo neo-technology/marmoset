@@ -51,9 +51,13 @@ var (
 )
 
 const (
-	ACTION_DRY_RUN    = "dry-run"
-	ACTION_DELETE_POD = "delete-pod"
-	ACTION_EXEC_POD   = "exec-pod"
+	// Mixing "action" and the target type into one concept is conflating concerns;
+	// this is meant as a stop gap, intended to be replaced as needed to accommodate
+	// more involved specifications of chaos over time.
+	ACTION_DRY_RUN     = "dry-run"
+	ACTION_DELETE_POD  = "delete-pod"
+	ACTION_EXEC_POD    = "exec-pod"
+	ACTION_DELETE_NODE = "delete-node"
 )
 
 func init() {
@@ -72,7 +76,7 @@ func init() {
 	kingpin.Flag("interval", "Interval between Pod terminations").Default("10m").DurationVar(&interval)
 	kingpin.Flag("exec", "Command to use in 'exec' action").StringVar(&exec)
 	kingpin.Flag("exec-container", "Name of container to run --exec command in, defaults to first container in spec").Default("").StringVar(&execContainer)
-	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod").Default(ACTION_DRY_RUN).StringVar(&action)
+	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod, delete-node").Default(ACTION_DRY_RUN).StringVar(&action)
 	kingpin.Flag("debug", "Enable debug logging.").BoolVar(&debug)
 	kingpin.Flag("log-format", "'plain' or 'json'").Default("plain").StringVar(&logFormat)
 	kingpin.Flag("log-fields", "key=value, comma separated list of fields to include in every log message").Default("").StringVar(&logFields)
@@ -170,30 +174,44 @@ func main() {
 		"offset":   offset / int(time.Hour/time.Second),
 	}).Info("setting timezone")
 
-	var actionImpl chaoskube.PodAction
+	var spec chaoskube.ChaosSpec
 	switch action {
 	case ACTION_DRY_RUN:
-		actionImpl = chaoskube.NewDryRunAction()
+		spec = &chaoskube.PodChaosSpec{
+			Action:      chaoskube.NewDryRunPodAction(),
+			Labels:      labelSelector,
+			Annotations: annotations,
+			Namespaces:  namespaces,
+			MinimumAge:  minimumAge,
+			Logger:      logger,
+		}
 	case ACTION_DELETE_POD:
-		actionImpl = chaoskube.NewDeletePodAction(client)
+		spec = &chaoskube.PodChaosSpec{
+			Action:      chaoskube.NewDeletePodAction(client),
+			Labels:      labelSelector,
+			Annotations: annotations,
+			Namespaces:  namespaces,
+			MinimumAge:  minimumAge,
+			Logger:      logger,
+		}
 	case ACTION_EXEC_POD:
-		actionImpl = chaoskube.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " "))
+		spec = &chaoskube.PodChaosSpec{
+			Action:      chaoskube.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " ")),
+			Labels:      labelSelector,
+			Annotations: annotations,
+			Namespaces:  namespaces,
+			MinimumAge:  minimumAge,
+			Logger:      logger,
+		}
+	case ACTION_DELETE_NODE:
+		spec = chaoskube.NewNodeChaosSpec(chaoskube.NewDeleteNodeAction(), logger)
 	default:
 		panic(fmt.Sprintf("Unknown action: '%s'", action))
 	}
 
-	chaosSpec := &chaoskube.PodChaosSpec{
-		Action:      actionImpl,
-		Labels:      labelSelector,
-		Annotations: annotations,
-		Namespaces:  namespaces,
-		MinimumAge:  minimumAge,
-		Logger:      logger,
-	}
-
 	chaoskube := chaoskube.New(
 		client,
-		chaosSpec,
+		spec,
 		parsedWeekdays,
 		parsedTimesOfDay,
 		parsedDaysOfYear,

@@ -9,6 +9,7 @@ import (
 	k8smeta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"testing"
 	"time"
@@ -117,17 +118,96 @@ func TestPodChaos(t *testing.T) {
 	}
 }
 
+func TestNodeChaos(t *testing.T) {
+	// Note: Keep an eye to keep this close to TestPodChaos; you can probably factor out something
+	// common eventually.
+	for _, testCase := range []struct {
+		name                   string
+		given                  []runtime.Object
+		expectEventuallyChosen []string
+	}{
+		{
+			name:                   "Eventually chooses all nodes",
+			given:                  []runtime.Object{node("A"), node("B")},
+			expectEventuallyChosen: []string{"A", "B"},
+		},
+		{
+			name:                   "No matching nodes is ok",
+			given:                  []runtime.Object{},
+			expectEventuallyChosen: []string{},
+		},
+	} {
+		tc := testCase // get a local var so testCase doesn't change under our feet
+		t.Run(tc.name, func(t *testing.T) {
+			expectedNames := asMap(tc.expectEventuallyChosen)
+			seenNames := make(map[string]bool)
+			client := fake.NewSimpleClientset(tc.given...)
+			recorder := &recordNodeAction{}
+
+			spec := chaoskube.NewNodeChaosSpec(recorder, logger)
+
+			for i := 0; i < 1000; i++ {
+				// When
+				err := spec.Apply(client, now)
+
+				if err != nil {
+					t.Fatalf("Spec application failed: %s", err)
+					return
+				}
+
+				if recorder.lastGivenNode != nil {
+					seenNames[recorder.lastGivenNode.Name] = true
+					if _, ok := expectedNames[recorder.lastGivenNode.Name]; !ok {
+						t.Fatalf("Unexpected node chosen: %s", recorder.lastGivenNode.Name)
+						return
+					}
+				}
+			}
+
+			for _, expected := range tc.expectEventuallyChosen {
+				if _, ok := seenNames[expected]; !ok {
+					t.Fatalf("Expected node to be selected: %s", expected)
+				}
+			}
+		})
+	}
+}
+
 type recordPodAction struct {
 	lastGivenPod *v1.Pod
 }
 
-func (a *recordPodAction) ApplyChaos(victim v1.Pod) error {
+func (a *recordPodAction) ApplyToPod(victim v1.Pod) error {
 	a.lastGivenPod = &victim
 	return nil
 }
-
 func (a *recordPodAction) Name() string {
 	return "record-pod"
+}
+
+type recordNodeAction struct {
+	lastGivenNode *v1.Node
+}
+
+func (a *recordNodeAction) ApplyToNode(client kubernetes.Interface, victim *v1.Node) error {
+	a.lastGivenNode = victim
+	return nil
+}
+func (a *recordNodeAction) Name() string {
+	return "record-node"
+}
+
+func node(name string, modifiers ...func(*v1.Node)) runtime.Object {
+	n := &v1.Node{
+		ObjectMeta: k8smeta.ObjectMeta{
+			Name: name,
+		},
+	}
+	n.CreationTimestamp = k8smeta.Time{now}
+	for _, mod := range modifiers {
+		mod(n)
+	}
+	return n
 }
 
 func pod(name string, modifiers ...func(*v1.Pod)) runtime.Object {

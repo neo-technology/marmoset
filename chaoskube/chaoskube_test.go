@@ -405,7 +405,7 @@ func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Sele
 	client := fake.NewSimpleClientset()
 	action := NewDeletePodAction(client)
 	if dryRun {
-		action = NewDryRunAction()
+		action = NewDryRunPodAction()
 	}
 
 	chaosSpec := &PodChaosSpec{

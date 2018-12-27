@@ -16,6 +16,55 @@ type ChaosSpec interface {
 	Apply(k8sclient clientset.Interface, now time.Time) error
 }
 
+// == Node chaos ==
+
+type NodeChaosSpec struct {
+	Action NodeAction
+	// an instance of logrus.StdLogger to write log messages to
+	Logger log.FieldLogger
+}
+
+func (s *NodeChaosSpec) Apply(client clientset.Interface, now time.Time) error {
+	candidates, err := s.candidates(client, now)
+	if err != nil {
+		return err
+	}
+
+	if len(candidates) == 0 {
+		s.Logger.Debugf(msgVictimNotFound)
+		return nil
+	}
+
+	index := rand.Intn(len(candidates))
+	victim := candidates[index]
+
+	s.Logger.WithFields(log.Fields{
+		"namespace": victim.Namespace,
+		"name":      victim.Name,
+	}).Info(s.Action.Name())
+
+	return s.Action.ApplyToNode(client, &victim)
+}
+
+func (s *NodeChaosSpec) candidates(client clientset.Interface, now time.Time) ([]v1.Node, error) {
+	nodeList, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := nodeList.Items
+	return nodes, nil
+}
+
+func NewNodeChaosSpec(action NodeAction, logger log.FieldLogger) ChaosSpec {
+	return &NodeChaosSpec{
+		Action: action,
+		Logger: logger,
+	}
+}
+
+// == Pod chaos ==
+
 type PodChaosSpec struct {
 	Action PodAction
 	// a label selector which restricts the pods to choose from
@@ -49,7 +98,7 @@ func (s *PodChaosSpec) Apply(client clientset.Interface, now time.Time) error {
 		"name":      victim.Name,
 	}).Info(s.Action.Name())
 
-	return s.Action.ApplyChaos(victim)
+	return s.Action.ApplyToPod(victim)
 }
 
 func (s *PodChaosSpec) candidates(client clientset.Interface, now time.Time) ([]v1.Pod, error) {
