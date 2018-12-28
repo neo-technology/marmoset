@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/suite"
 	"encoding/json"
+	"github.com/stretchr/testify/suite"
 )
 
 type Suite struct {

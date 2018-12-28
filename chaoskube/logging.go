@@ -18,22 +18,24 @@ func SetupLogging(debug bool, logFormat string, logFields string) log.FieldLogge
 	if logFormat == "json" {
 		logger.Formatter = &log.JSONFormatter{
 			FieldMap: log.FieldMap{
-				log.FieldKeyMsg: "message",
+				log.FieldKeyMsg:   "message",
 				log.FieldKeyLevel: "severity",
 			},
 		}
 	}
 
 	fields := log.Fields{}
-	fieldPairs := strings.Split(logFields, ",")
-	for _, pair := range fieldPairs {
-		parts := strings.Split(pair, "=")
-		if len(parts) != 2 {
-			log.WithFields(log.Fields{
-				"logFields": logFields,
-			}).Fatal("failed to parse default log field argument")
+	if strings.TrimSpace(logFields) != "" {
+		fieldPairs := strings.Split(logFields, ",")
+		for _, pair := range fieldPairs {
+			parts := strings.Split(pair, "=")
+			if len(parts) != 2 {
+				log.WithFields(log.Fields{
+					"logFields": logFields,
+				}).Fatal("failed to parse default log field argument")
+			}
+			fields[parts[0]] = parts[1]
 		}
-		fields[parts[0]] = parts[1]
 	}
 
 	return logger.WithFields(fields)

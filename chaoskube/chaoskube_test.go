@@ -3,7 +3,6 @@ package chaoskube
 import (
 	"context"
 	"github.com/neo-technology/marmoset/util"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -11,8 +10,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/stretchr/testify/suite"
@@ -35,42 +34,30 @@ func (suite *Suite) SetupTest() {
 func (suite *Suite) TestNew() {
 	var (
 		client             = fake.NewSimpleClientset()
-		labelSelector, _   = labels.Parse("foo=bar")
-		annotations, _     = labels.Parse("baz=waldo")
-		namespaces, _      = labels.Parse("qux")
 		excludedWeekdays   = []time.Weekday{time.Friday}
-		excludedTimesOfDay = []util.TimePeriod{util.TimePeriod{}}
+		excludedTimesOfDay = []util.TimePeriod{{}}
 		excludedDaysOfYear = []time.Time{time.Now()}
-		minimumAge         = time.Duration(42)
 	)
 
-	action := NewDeletePodAction(client)
+	chaosSpec := &PodChaosSpec{}
 	chaoskube := New(
 		client,
-		labelSelector,
-		annotations,
-		namespaces,
+		chaosSpec,
 		excludedWeekdays,
 		excludedTimesOfDay,
 		excludedDaysOfYear,
 		time.UTC,
-		minimumAge,
 		logger,
-		action,
 	)
 	suite.Require().NotNil(chaoskube)
 
 	suite.Equal(client, chaoskube.Client)
-	suite.Equal("foo=bar", chaoskube.Labels.String())
-	suite.Equal("baz=waldo", chaoskube.Annotations.String())
-	suite.Equal("qux", chaoskube.Namespaces.String())
+	suite.Equal(chaosSpec, chaoskube.Spec)
 	suite.Equal(excludedWeekdays, chaoskube.ExcludedWeekdays)
 	suite.Equal(excludedTimesOfDay, chaoskube.ExcludedTimesOfDay)
 	suite.Equal(excludedDaysOfYear, chaoskube.ExcludedDaysOfYear)
 	suite.Equal(time.UTC, chaoskube.Timezone)
-	suite.Equal(minimumAge, chaoskube.MinimumAge)
 	suite.Equal(logger, chaoskube.Logger)
-	suite.Equal(action, chaoskube.Action)
 }
 
 // TestRunContextCanceled tests that a canceled context will exit the Run function.
@@ -93,143 +80,6 @@ func (suite *Suite) TestRunContextCanceled() {
 	chaoskube.Run(ctx, nil)
 }
 
-func (suite *Suite) TestCandidates() {
-	foo := map[string]string{"namespace": "default", "name": "foo"}
-	bar := map[string]string{"namespace": "testing", "name": "bar"}
-
-	for _, tt := range []struct {
-		labelSelector      string
-		annotationSelector string
-		namespaceSelector  string
-		pods               []map[string]string
-	}{
-		{"", "", "", []map[string]string{foo, bar}},
-		{"app=foo", "", "", []map[string]string{foo}},
-		{"app!=foo", "", "", []map[string]string{bar}},
-		{"", "chaos=foo", "", []map[string]string{foo}},
-		{"", "chaos!=foo", "", []map[string]string{bar}},
-		{"", "", "default", []map[string]string{foo}},
-		{"", "", "default,testing", []map[string]string{foo, bar}},
-		{"", "", "!testing", []map[string]string{foo}},
-		{"", "", "!default,!testing", []map[string]string{}},
-		{"", "", "default,!testing", []map[string]string{foo}},
-		{"", "", "default,!default", []map[string]string{}},
-	} {
-		labelSelector, err := labels.Parse(tt.labelSelector)
-		suite.Require().NoError(err)
-
-		annotationSelector, err := labels.Parse(tt.annotationSelector)
-		suite.Require().NoError(err)
-
-		namespaceSelector, err := labels.Parse(tt.namespaceSelector)
-		suite.Require().NoError(err)
-
-		chaoskube := suite.setupWithPods(
-			labelSelector,
-			annotationSelector,
-			namespaceSelector,
-			[]time.Weekday{},
-			[]util.TimePeriod{},
-			[]time.Time{},
-			time.UTC,
-			time.Duration(0),
-			false,
-		)
-
-		suite.assertCandidates(chaoskube, tt.pods)
-	}
-}
-
-func (suite *Suite) TestVictim() {
-	foo := map[string]string{"namespace": "default", "name": "foo"}
-	bar := map[string]string{"namespace": "testing", "name": "bar"}
-
-	for _, tt := range []struct {
-		seed          int64
-		labelSelector string
-		victim        map[string]string
-	}{
-		{2000, "", foo},
-		{4000, "", bar},
-		{4000, "app=foo", foo},
-	} {
-		rand.Seed(tt.seed)
-
-		labelSelector, err := labels.Parse(tt.labelSelector)
-		suite.Require().NoError(err)
-
-		chaoskube := suite.setupWithPods(
-			labelSelector,
-			labels.Everything(),
-			labels.Everything(),
-			[]time.Weekday{},
-			[]util.TimePeriod{},
-			[]time.Time{},
-			time.UTC,
-			time.Duration(0),
-			false,
-		)
-
-		suite.assertVictim(chaoskube, tt.victim)
-	}
-}
-
-// TestNoVictimReturnsError tests that on missing victim it returns a known error
-func (suite *Suite) TestNoVictimReturnsError() {
-	chaoskube := suite.setup(
-		labels.Everything(),
-		labels.Everything(),
-		labels.Everything(),
-		[]time.Weekday{},
-		[]util.TimePeriod{},
-		[]time.Time{},
-		time.UTC,
-		time.Duration(0),
-		false,
-	)
-
-	_, err := chaoskube.Victim()
-	suite.Equal(err, errPodNotFound)
-	suite.EqualError(err, "pod not found")
-}
-
-func (suite *Suite) TestDeletePod() {
-	foo := map[string]string{"namespace": "default", "name": "foo"}
-	bar := map[string]string{"namespace": "testing", "name": "bar"}
-
-	for _, tt := range []struct {
-		dryRun        bool
-		remainingPods []map[string]string
-	}{
-		{false, []map[string]string{bar}},
-		{true, []map[string]string{foo, bar}},
-	} {
-		chaoskube := suite.setupWithPods(
-			labels.Everything(),
-			labels.Everything(),
-			labels.Everything(),
-			[]time.Weekday{},
-			[]util.TimePeriod{},
-			[]time.Time{},
-			time.UTC,
-			time.Duration(0),
-			tt.dryRun,
-		)
-
-		victim := util.NewPod("default", "foo", v1.PodRunning)
-
-		err := chaoskube.ApplyChaos(victim)
-		suite.Require().NoError(err)
-
-		if tt.dryRun {
-			suite.assertLog(log.InfoLevel, "dry run", log.Fields{"namespace": "default", "name": "foo"})
-		} else {
-			suite.assertLog(log.InfoLevel, "terminating pod", log.Fields{"namespace": "default", "name": "foo"})
-		}
-		suite.assertCandidates(chaoskube, tt.remainingPods)
-	}
-}
-
 func (suite *Suite) TestTerminateVictim() {
 	midnight := util.NewTimePeriod(
 		ThankGodItsFriday{}.Now().Add(-16*time.Hour),
@@ -246,6 +96,8 @@ func (suite *Suite) TestTerminateVictim() {
 
 	australia, err := time.LoadLocation("Australia/Brisbane")
 	suite.Require().NoError(err)
+	expectSpecInvoked := true
+	expectSpecNotInvoked := false
 
 	for _, tt := range []struct {
 		excludedWeekdays   []time.Weekday
@@ -253,7 +105,7 @@ func (suite *Suite) TestTerminateVictim() {
 		excludedDaysOfYear []time.Time
 		now                func() time.Time
 		timezone           *time.Location
-		remainingPodCount  int
+		expectSpecInvoked  bool
 	}{
 		// no time is excluded, one pod should be killed
 		{
@@ -262,7 +114,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// current weekday is excluded, no pod should be killed
 		{
@@ -271,7 +123,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// current time of day is excluded, no pod should be killed
 		{
@@ -280,7 +132,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// one day after an excluded weekday, one pod should be killed
 		{
@@ -289,7 +141,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(24 * time.Hour) },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// seven days after an excluded weekday, no pod should be killed
 		{
@@ -298,7 +150,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(7 * 24 * time.Hour) },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// one hour after an excluded time period, one pod should be killed
 		{
@@ -307,7 +159,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(+2 * time.Hour) },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// twenty four hours after an excluded time period, no pod should be killed
 		{
@@ -316,7 +168,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(+24 * time.Hour) },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// current weekday is excluded but we are in another time zone, one pod should be killed
 		{
@@ -325,7 +177,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			australia,
-			1,
+			expectSpecInvoked,
 		},
 		// current time period is excluded but we are in another time zone, one pod should be killed
 		{
@@ -334,7 +186,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			australia,
-			1,
+			expectSpecInvoked,
 		},
 		// one out of two excluded weeksdays match, no pod should be killed
 		{
@@ -343,7 +195,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// one out of two excluded time periods match, no pod should be killed
 		{
@@ -352,7 +204,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			ThankGodItsFriday{}.Now,
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// we're inside an excluded time period across days, no pod should be killed
 		{
@@ -361,7 +213,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(-15 * time.Hour) },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// we're before an excluded time period across days, one pod should be killed
 		{
@@ -370,7 +222,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(-17 * time.Hour) },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// we're after an excluded time period across days, one pod should be killed
 		{
@@ -379,7 +231,7 @@ func (suite *Suite) TestTerminateVictim() {
 			[]time.Time{},
 			func() time.Time { return ThankGodItsFriday{}.Now().Add(-13 * time.Hour) },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// this day of year is excluded, no pod should be killed
 		{
@@ -390,7 +242,7 @@ func (suite *Suite) TestTerminateVictim() {
 			},
 			func() time.Time { return ThankGodItsFriday{}.Now() },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// this day of year in year 0 is excluded, no pod should be killed
 		{
@@ -401,7 +253,7 @@ func (suite *Suite) TestTerminateVictim() {
 			},
 			func() time.Time { return ThankGodItsFriday{}.Now() },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// matching works fine even when multiple days-of-year are provided, no pod should be killed
 		{
@@ -413,7 +265,7 @@ func (suite *Suite) TestTerminateVictim() {
 			},
 			func() time.Time { return ThankGodItsFriday{}.Now() },
 			time.UTC,
-			2,
+			expectSpecNotInvoked,
 		},
 		// there is an excluded day of year but it's not today, one pod should be killed
 		{
@@ -424,7 +276,7 @@ func (suite *Suite) TestTerminateVictim() {
 			},
 			func() time.Time { return ThankGodItsFriday{}.Now() },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 		// there is an excluded day of year but the month is different, one pod should be killed
 		{
@@ -435,7 +287,7 @@ func (suite *Suite) TestTerminateVictim() {
 			},
 			func() time.Time { return ThankGodItsFriday{}.Now() },
 			time.UTC,
-			1,
+			expectSpecInvoked,
 		},
 	} {
 		chaoskube := suite.setupWithPods(
@@ -449,15 +301,17 @@ func (suite *Suite) TestTerminateVictim() {
 			time.Duration(0),
 			false,
 		)
+		recorder := &chaosRecorder{}
+		chaoskube.Spec = recorder
 		chaoskube.Now = tt.now
 
 		err := chaoskube.TerminateVictim()
 		suite.Require().NoError(err)
 
-		pods, err := chaoskube.Candidates()
+		err = chaoskube.TerminateVictim()
 		suite.Require().NoError(err)
 
-		suite.Len(pods, tt.remainingPodCount)
+		suite.Require().Equal(tt.expectSpecInvoked, recorder.invoked)
 	}
 }
 
@@ -481,21 +335,46 @@ func (suite *Suite) TestTerminateNoVictimLogsInfo() {
 	suite.assertLog(log.DebugLevel, msgVictimNotFound, log.Fields{})
 }
 
+func (suite *Suite) TestDryRunIsInert() {
+	chaoskube := suite.setupWithPods(
+		labels.Everything(),
+		labels.Everything(),
+		labels.Everything(),
+		[]time.Weekday{},
+		[]util.TimePeriod{},
+		[]time.Time{},
+		time.UTC,
+		time.Duration(0),
+		true, // dry run
+	)
+	client := chaoskube.Client.(*fake.Clientset)
+	client.Fake.ClearActions() // Clear the actions taken by the setup code
+
+	err := chaoskube.TerminateVictim()
+	suite.Require().NoError(err)
+
+	suite.assertLog(log.InfoLevel, "dry run", log.Fields{})
+	// Future note: This is just because the current behavior is that dry run is a pod-targeting
+	// thing, dry running selection of a pod. We should implement dry run against nodes as well,
+	// and modify these assertions of expected behavior appropriately.
+	actionsTaken := client.Fake.Actions()
+	suite.Equal("list", actionsTaken[0].GetVerb())
+	suite.Equal("pods", actionsTaken[0].GetResource().Resource)
+	suite.Equal(1, len(actionsTaken), "Expected no additional actions, found %v", actionsTaken)
+}
+
 // helper functions
 
-func (suite *Suite) assertCandidates(chaoskube *Chaoskube, expected []map[string]string) {
-	pods, err := chaoskube.Candidates()
-	suite.Require().NoError(err)
-
-	suite.assertPods(pods, expected)
+type chaosRecorder struct {
+	invoked bool
 }
 
-func (suite *Suite) assertVictim(chaoskube *Chaoskube, expected map[string]string) {
-	victim, err := chaoskube.Victim()
-	suite.Require().NoError(err)
-
-	suite.assertPod(victim, expected)
+func (r *chaosRecorder) Apply(k8sclient clientset.Interface, now time.Time) error {
+	r.invoked = true
+	return nil
 }
+
+var _ ChaosSpec = &chaosRecorder{}
 
 func (suite *Suite) assertPods(pods []v1.Pod, expected []map[string]string) {
 	suite.Require().Len(pods, len(expected))
@@ -554,21 +433,25 @@ func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Sele
 	client := fake.NewSimpleClientset()
 	action := NewDeletePodAction(client)
 	if dryRun {
-		action = NewDryRunAction()
+		action = NewDryRunPodAction()
 	}
 
+	chaosSpec := &PodChaosSpec{
+		Action:      action,
+		Labels:      labelSelector,
+		Annotations: annotations,
+		Namespaces:  namespaces,
+		MinimumAge:  minimumAge,
+		Logger:      logger,
+	}
 	return New(
 		client,
-		labelSelector,
-		annotations,
-		namespaces,
+		chaosSpec,
 		excludedWeekdays,
 		excludedTimesOfDay,
 		excludedDaysOfYear,
 		timezone,
-		minimumAge,
 		logger,
-		action,
 	)
 }
 
@@ -583,104 +466,4 @@ type ThankGodItsFriday struct{}
 func (t ThankGodItsFriday) Now() time.Time {
 	blackFriday, _ := time.Parse(time.RFC1123, "Fri, 24 Sep 1869 15:04:05 UTC")
 	return blackFriday
-}
-
-func (suite *Suite) TestMinimumAge() {
-	type pod struct {
-		name         string
-		namespace    string
-		creationTime time.Time
-	}
-
-	for _, tt := range []struct {
-		minimumAge time.Duration
-		now        func() time.Time
-		pods       []pod
-		candidates int
-	}{
-		// no minimum age set
-		{
-			time.Duration(0),
-			func() time.Time { return time.Date(0, 10, 24, 10, 00, 00, 00, time.UTC) },
-			[]pod{
-				{
-					name:         "test1",
-					namespace:    "test",
-					creationTime: time.Date(0, 10, 24, 9, 00, 00, 00, time.UTC),
-				},
-			},
-			1,
-		},
-		// minimum age set, but pod is too young
-		{
-			time.Hour * 1,
-			func() time.Time { return time.Date(0, 10, 24, 10, 00, 00, 00, time.UTC) },
-			[]pod{
-				{
-					name:         "test1",
-					namespace:    "test",
-					creationTime: time.Date(0, 10, 24, 9, 30, 00, 00, time.UTC),
-				},
-			},
-			0,
-		},
-		// one pod is too young, one matches
-		{
-			time.Hour * 1,
-			func() time.Time { return time.Date(0, 10, 24, 10, 00, 00, 00, time.UTC) },
-			[]pod{
-				// too young
-				{
-					name:         "test1",
-					namespace:    "test",
-					creationTime: time.Date(0, 10, 24, 9, 30, 00, 00, time.UTC),
-				},
-				// matches
-				{
-					name:         "test2",
-					namespace:    "test",
-					creationTime: time.Date(0, 10, 23, 8, 00, 00, 00, time.UTC),
-				},
-			},
-			1,
-		},
-		// exact time - should not match
-		{
-			time.Hour * 1,
-			func() time.Time { return time.Date(0, 10, 24, 10, 00, 00, 00, time.UTC) },
-			[]pod{
-				{
-					name:         "test1",
-					namespace:    "test",
-					creationTime: time.Date(0, 10, 24, 10, 00, 00, 00, time.UTC),
-				},
-			},
-			0,
-		},
-	} {
-		chaoskube := suite.setup(
-			labels.Everything(),
-			labels.Everything(),
-			labels.Everything(),
-			[]time.Weekday{},
-			[]util.TimePeriod{},
-			[]time.Time{},
-			time.UTC,
-			tt.minimumAge,
-			false,
-		)
-		chaoskube.Now = tt.now
-
-		for _, p := range tt.pods {
-			pod := util.NewPod(p.namespace, p.name, v1.PodRunning)
-			pod.ObjectMeta.CreationTimestamp = metav1.Time{Time: p.creationTime}
-			_, err := chaoskube.Client.Core().Pods(pod.Namespace).Create(&pod)
-			suite.Require().NoError(err)
-		}
-
-		pods, err := chaoskube.Candidates()
-		suite.Require().NoError(err)
-
-		suite.Len(pods, tt.candidates)
-	}
 }

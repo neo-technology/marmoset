@@ -3,17 +3,11 @@ package chaoskube
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/neo-technology/marmoset/util"
-	"math/rand"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -21,26 +15,18 @@ import (
 type Chaoskube struct {
 	// a kubernetes client object
 	Client kubernetes.Interface
-	// a label selector which restricts the pods to choose from
-	Labels labels.Selector
-	// an annotation selector which restricts the pods to choose from
-	Annotations labels.Selector
-	// a namespace selector which restricts the pods to choose from
-	Namespaces labels.Selector
-	// a list of weekdays when termination is suspended
+	// Specification of chaos: Who to target and what to do
+	Spec ChaosSpec
+	// a list of weekdays when chaos is suspended
 	ExcludedWeekdays []time.Weekday
-	// a list of time periods of a day when termination is suspended
+	// a list of time periods of a day when chaos is suspended
 	ExcludedTimesOfDay []util.TimePeriod
-	// a list of days of a year when termination is suspended
+	// a list of days of a year when chaos is suspended
 	ExcludedDaysOfYear []time.Time
 	// the timezone to apply when detecting the current weekday
 	Timezone *time.Location
-	// minimum age of pods to consider
-	MinimumAge time.Duration
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
-	// action taken against victim pods
-	Action ChaosAction
 	// a function to retrieve the current time
 	Now func() time.Time
 }
@@ -65,19 +51,15 @@ var (
 // * a time zone to apply to the aforementioned time-based filters
 // * a logger implementing logrus.FieldLogger to send log output to
 // * what specific action to use to imbue chaos on victim pods
-func New(client kubernetes.Interface, labels, annotations, namespaces labels.Selector, excludedWeekdays []time.Weekday, excludedTimesOfDay []util.TimePeriod, excludedDaysOfYear []time.Time, timezone *time.Location, minimumAge time.Duration, logger log.FieldLogger, action ChaosAction) *Chaoskube {
+func New(client kubernetes.Interface, spec ChaosSpec, excludedWeekdays []time.Weekday, excludedTimesOfDay []util.TimePeriod, excludedDaysOfYear []time.Time, timezone *time.Location, logger log.FieldLogger) *Chaoskube {
 	return &Chaoskube{
 		Client:             client,
-		Labels:             labels,
-		Annotations:        annotations,
-		Namespaces:         namespaces,
+		Spec:               spec,
 		ExcludedWeekdays:   excludedWeekdays,
 		ExcludedTimesOfDay: excludedTimesOfDay,
 		ExcludedDaysOfYear: excludedDaysOfYear,
 		Timezone:           timezone,
-		MinimumAge:         minimumAge,
 		Logger:             logger,
-		Action:             action,
 		Now:                time.Now,
 	}
 }
@@ -125,177 +107,10 @@ func (c *Chaoskube) TerminateVictim() error {
 		}
 	}
 
-	victim, err := c.Victim()
+	err := c.Spec.Apply(c.Client, c.Now())
 	if err == errPodNotFound {
 		c.Logger.Debug(msgVictimNotFound)
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-
-	return c.ApplyChaos(victim)
-}
-
-// Victim returns a random pod from the list of Candidates.
-// It returns an error if there are no candidates to choose from.
-func (c *Chaoskube) Victim() (v1.Pod, error) {
-	pods, err := c.Candidates()
-	if err != nil {
-		return v1.Pod{}, err
-	}
-
-	c.Logger.WithField("count", len(pods)).Debug("found candidates")
-
-	if len(pods) == 0 {
-		return v1.Pod{}, errPodNotFound
-	}
-
-	index := rand.Intn(len(pods))
-
-	return pods[index], nil
-}
-
-// Candidates returns the list of pods that are available for termination.
-// It returns all pods that match the configured label, annotation and namespace selectors.
-func (c *Chaoskube) Candidates() ([]v1.Pod, error) {
-	listOptions := metav1.ListOptions{LabelSelector: c.Labels.String()}
-
-	podList, err := c.Client.CoreV1().Pods(v1.NamespaceAll).List(listOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	pods, err := filterByNamespaces(podList.Items, c.Namespaces)
-	if err != nil {
-		return nil, err
-	}
-
-	pods = filterByAnnotations(pods, c.Annotations)
-	pods = filterByPhase(pods, v1.PodRunning)
-	pods = filterByMinimumAge(pods, c.MinimumAge, c.Now())
-
-	return pods, nil
-}
-
-// ApplyChaos deletes the given pod.
-// It will not delete the pod if dry-run mode is enabled.
-func (c *Chaoskube) ApplyChaos(victim v1.Pod) error {
-	c.Logger.WithFields(log.Fields{
-		"namespace": victim.Namespace,
-		"name":      victim.Name,
-	}).Info(c.Action.Name())
-
-	return c.Action.ApplyChaos(victim)
-}
-
-// filterByNamespaces filters a list of pods by a given namespace selector.
-func filterByNamespaces(pods []v1.Pod, namespaces labels.Selector) ([]v1.Pod, error) {
-	// empty filter returns original list
-	if namespaces.Empty() {
-		return pods, nil
-	}
-
-	// split requirements into including and excluding groups
-	reqs, _ := namespaces.Requirements()
-	reqIncl := []labels.Requirement{}
-	reqExcl := []labels.Requirement{}
-
-	for _, req := range reqs {
-		switch req.Operator() {
-		case selection.Exists:
-			reqIncl = append(reqIncl, req)
-		case selection.DoesNotExist:
-			reqExcl = append(reqExcl, req)
-		default:
-			return nil, fmt.Errorf("unsupported operator: %s", req.Operator())
-		}
-	}
-
-	filteredList := []v1.Pod{}
-
-	for _, pod := range pods {
-		// if there aren't any including requirements, we're in by default
-		included := len(reqIncl) == 0
-
-		// convert the pod's namespace to an equivalent label selector
-		selector := labels.Set{pod.Namespace: ""}
-
-		// include pod if one including requirement matches
-		for _, req := range reqIncl {
-			if req.Matches(selector) {
-				included = true
-				break
-			}
-		}
-
-		// exclude pod if it is filtered out by at least one excluding requirement
-		for _, req := range reqExcl {
-			if !req.Matches(selector) {
-				included = false
-				break
-			}
-		}
-
-		if included {
-			filteredList = append(filteredList, pod)
-		}
-	}
-
-	return filteredList, nil
-}
-
-// filterByAnnotations filters a list of pods by a given annotation selector.
-func filterByAnnotations(pods []v1.Pod, annotations labels.Selector) []v1.Pod {
-	// empty filter returns original list
-	if annotations.Empty() {
-		return pods
-	}
-
-	filteredList := []v1.Pod{}
-
-	for _, pod := range pods {
-		// convert the pod's annotations to an equivalent label selector
-		selector := labels.Set(pod.Annotations)
-
-		// include pod if its annotations match the selector
-		if annotations.Matches(selector) {
-			filteredList = append(filteredList, pod)
-		}
-	}
-
-	return filteredList
-}
-
-// filterByPhase filters a list of pods by a given PodPhase, e.g. Running.
-func filterByPhase(pods []v1.Pod, phase v1.PodPhase) []v1.Pod {
-	filteredList := []v1.Pod{}
-
-	for _, pod := range pods {
-		if pod.Status.Phase == phase {
-			filteredList = append(filteredList, pod)
-		}
-	}
-
-	return filteredList
-}
-
-// filterByMinimumAge filters pods by creation time. Only pods
-// older than minimumAge are returned
-func filterByMinimumAge(pods []v1.Pod, minimumAge time.Duration, now time.Time) []v1.Pod {
-	if minimumAge <= time.Duration(0) {
-		return pods
-	}
-
-	creationTime := now.Add(-minimumAge)
-
-	filteredList := []v1.Pod{}
-
-	for _, pod := range pods {
-		if pod.ObjectMeta.CreationTimestamp.Time.Before(creationTime) {
-			filteredList = append(filteredList, pod)
-		}
-	}
-
-	return filteredList
+	return err
 }
