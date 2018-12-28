@@ -65,6 +65,12 @@ func TestPodChaos(t *testing.T) {
 		{
 			name:                   "Age filter leaves pods alone",
 			givenAgeFilter:         100 * time.Hour,
+			given:                  []runtime.Object{pod("A", age(100*time.Hour)), pod("B")},
+			expectEventuallyChosen: []string{},
+		},
+		{
+			name:                   "Age filter only lets through old-enough pods",
+			givenAgeFilter:         100 * time.Hour,
 			given:                  []runtime.Object{pod("A"), pod("B", age(1000*time.Hour))},
 			expectEventuallyChosen: []string{"B"},
 		},

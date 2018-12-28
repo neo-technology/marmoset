@@ -335,6 +335,34 @@ func (suite *Suite) TestTerminateNoVictimLogsInfo() {
 	suite.assertLog(log.DebugLevel, msgVictimNotFound, log.Fields{})
 }
 
+func (suite *Suite) TestDryRunIsInert() {
+	chaoskube := suite.setupWithPods(
+		labels.Everything(),
+		labels.Everything(),
+		labels.Everything(),
+		[]time.Weekday{},
+		[]util.TimePeriod{},
+		[]time.Time{},
+		time.UTC,
+		time.Duration(0),
+		true, // dry run
+	)
+	client := chaoskube.Client.(*fake.Clientset)
+	client.Fake.ClearActions() // Clear the actions taken by the setup code
+
+	err := chaoskube.TerminateVictim()
+	suite.Require().NoError(err)
+
+	suite.assertLog(log.InfoLevel, "dry run", log.Fields{})
+	// Future note: This is just because the current behavior is that dry run is a pod-targeting
+	// thing, dry running selection of a pod. We should implement dry run against nodes as well,
+	// and modify these assertions of expected behavior appropriately.
+	actionsTaken := client.Fake.Actions()
+	suite.Equal("list", actionsTaken[0].GetVerb())
+	suite.Equal("pods", actionsTaken[0].GetResource().Resource)
+	suite.Equal(1, len(actionsTaken), "Expected no additional actions, found %v", actionsTaken)
+}
+
 // helper functions
 
 type chaosRecorder struct {
