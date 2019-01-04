@@ -3,6 +3,7 @@ package chaoskube
 import (
 	"context"
 	"github.com/neo-technology/marmoset/util"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,6 +79,53 @@ func (suite *Suite) TestRunContextCanceled() {
 	cancel()
 
 	chaoskube.Run(ctx, nil)
+}
+
+// TestRunContextCanceled tests that a canceled context will exit the Run function.
+func (suite *Suite) TestDelay() {
+	chaoskube := suite.setup(
+		labels.Everything(),
+		labels.Everything(),
+		labels.Everything(),
+		[]time.Weekday{},
+		[]util.TimePeriod{},
+		[]time.Time{},
+		time.UTC,
+		time.Duration(0),
+		false,
+	)
+	counter := &countingSpec{}
+	chaoskube.Spec = counter
+
+	timer := make(chan time.Time)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go chaoskube.Run(ctx, timer)
+
+	// The spec should be invoked once for each time interval we send, and it should
+	// *wait* for the first interval; otherwise if the chaos monkey kills itself we could
+	// end up rapid-cycling, bypassing the timer interval.
+	deadline := time.Now().Add(1 * time.Minute)
+	for i := 0; i < 10; i++ {
+		for counter.currentCount() != uint64(i) && time.Now().Before(deadline) {
+			time.Sleep(1 * time.Millisecond)
+		}
+		suite.Require().Equal(uint64(i), counter.currentCount())
+		timer <- time.Now()
+	}
+}
+
+type countingSpec struct {
+	counter uint64
+}
+
+func (c *countingSpec) Apply(k8sclient clientset.Interface, now time.Time) error {
+	atomic.AddUint64(&c.counter, 1)
+	return nil
+}
+func (c *countingSpec) currentCount() uint64 {
+	return atomic.LoadUint64(&c.counter)
 }
 
 func (suite *Suite) TestTerminateVictim() {
