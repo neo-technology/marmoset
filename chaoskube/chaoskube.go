@@ -68,15 +68,15 @@ func New(client kubernetes.Interface, spec ChaosSpec, excludedWeekdays []time.We
 // described by channel next. It returns when the given context is canceled.
 func (c *Chaoskube) Run(ctx context.Context, next <-chan time.Time) {
 	for {
-		if err := c.TerminateVictim(); err != nil {
-			c.Logger.WithField("err", err).Error("failed to terminate victim")
-		}
-
 		c.Logger.Debug("sleeping...")
 		select {
 		case <-next:
 		case <-ctx.Done():
 			return
+		}
+
+		if err := c.TerminateVictim(); err != nil {
+			c.Logger.WithField("err", err).Error("failed to terminate victim")
 		}
 	}
 }
