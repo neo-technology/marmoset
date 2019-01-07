@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/neo-technology/marmoset/chaoskube"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	"github.com/neo-technology/marmoset/util"
 	"math/rand"
 	"net/http"
@@ -41,7 +42,7 @@ var (
 	master             string
 	kubeconfig         string
 	interval           time.Duration
-	action             string
+	actionName         string
 	debug              bool
 	metricsAddress     string
 	exec               string
@@ -76,7 +77,7 @@ func init() {
 	kingpin.Flag("interval", "Interval between Pod terminations").Default("10m").DurationVar(&interval)
 	kingpin.Flag("exec", "Command to use in 'exec' action").StringVar(&exec)
 	kingpin.Flag("exec-container", "Name of container to run --exec command in, defaults to first container in spec").Default("").StringVar(&execContainer)
-	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod, delete-node").Default(ACTION_DRY_RUN).StringVar(&action)
+	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod, delete-node").Default(ACTION_DRY_RUN).StringVar(&actionName)
 	kingpin.Flag("debug", "Enable debug logging.").BoolVar(&debug)
 	kingpin.Flag("log-format", "'plain' or 'json'").Default("plain").StringVar(&logFormat)
 	kingpin.Flag("log-fields", "key=value, comma separated list of fields to include in every log message").Default("").StringVar(&logFields)
@@ -101,7 +102,7 @@ func main() {
 		"master":             master,
 		"kubeconfig":         kubeconfig,
 		"interval":           interval,
-		"action":             action,
+		"action":             actionName,
 		"exec":               exec,
 		"execContainer":      execContainer,
 		"debug":              debug,
@@ -110,7 +111,7 @@ func main() {
 
 	logger.WithFields(log.Fields{
 		"version":  version,
-		"dryRun":   action == ACTION_DRY_RUN,
+		"dryRun":   actionName == ACTION_DRY_RUN,
 		"interval": interval,
 	}).Info("starting up")
 
@@ -175,10 +176,10 @@ func main() {
 	}).Info("setting timezone")
 
 	var spec chaoskube.ChaosSpec
-	switch action {
+	switch actionName {
 	case ACTION_DRY_RUN:
 		spec = &chaoskube.PodChaosSpec{
-			Action:      chaoskube.NewDryRunPodAction(),
+			Action:      action.NewDryRunPodAction(),
 			Labels:      labelSelector,
 			Annotations: annotations,
 			Namespaces:  namespaces,
@@ -187,7 +188,7 @@ func main() {
 		}
 	case ACTION_DELETE_POD:
 		spec = &chaoskube.PodChaosSpec{
-			Action:      chaoskube.NewDeletePodAction(client),
+			Action:      action.NewDeletePodAction(client),
 			Labels:      labelSelector,
 			Annotations: annotations,
 			Namespaces:  namespaces,
@@ -196,7 +197,7 @@ func main() {
 		}
 	case ACTION_EXEC_POD:
 		spec = &chaoskube.PodChaosSpec{
-			Action:      chaoskube.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " ")),
+			Action:      action.NewExecAction(client.CoreV1().RESTClient(), config, execContainer, strings.Split(exec, " ")),
 			Labels:      labelSelector,
 			Annotations: annotations,
 			Namespaces:  namespaces,
@@ -204,9 +205,9 @@ func main() {
 			Logger:      logger,
 		}
 	case ACTION_DELETE_NODE:
-		spec = chaoskube.NewNodeChaosSpec(chaoskube.NewDeleteNodeAction(), logger)
+		spec = chaoskube.NewNodeChaosSpec(action.NewDeleteNodeAction(), logger)
 	default:
-		panic(fmt.Sprintf("Unknown action: '%s'", action))
+		panic(fmt.Sprintf("Unknown action: '%s'", actionName))
 	}
 
 	chaoskube := chaoskube.New(

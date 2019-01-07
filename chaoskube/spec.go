@@ -2,6 +2,7 @@ package chaoskube
 
 import (
 	"fmt"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,7 +20,7 @@ type ChaosSpec interface {
 // == Node chaos ==
 
 type NodeChaosSpec struct {
-	Action NodeAction
+	Action action.NodeAction
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
 }
@@ -56,7 +57,7 @@ func (s *NodeChaosSpec) candidates(client clientset.Interface, now time.Time) ([
 	return nodes, nil
 }
 
-func NewNodeChaosSpec(action NodeAction, logger log.FieldLogger) ChaosSpec {
+func NewNodeChaosSpec(action action.NodeAction, logger log.FieldLogger) ChaosSpec {
 	return &NodeChaosSpec{
 		Action: action,
 		Logger: logger,
@@ -66,7 +67,7 @@ func NewNodeChaosSpec(action NodeAction, logger log.FieldLogger) ChaosSpec {
 // == Pod chaos ==
 
 type PodChaosSpec struct {
-	Action PodAction
+	Action action.PodAction
 	// a label selector which restricts the pods to choose from
 	Labels labels.Selector
 	// an annotation selector which restricts the pods to choose from
@@ -121,7 +122,7 @@ func (s *PodChaosSpec) candidates(client clientset.Interface, now time.Time) ([]
 	return pods, nil
 }
 
-func NewPodChaosSpec(action PodAction, labels, annotations, namespaces labels.Selector, minimumAge time.Duration,
+func NewPodChaosSpec(action action.PodAction, labels, annotations, namespaces labels.Selector, minimumAge time.Duration,
 	logger log.FieldLogger) ChaosSpec {
 	return &PodChaosSpec{
 		Action:      action,

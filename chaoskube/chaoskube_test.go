@@ -2,6 +2,7 @@ package chaoskube
 
 import (
 	"context"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	"github.com/neo-technology/marmoset/util"
 	"sync/atomic"
 	"testing"
@@ -479,13 +480,13 @@ func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Sele
 	logOutput.Reset()
 
 	client := fake.NewSimpleClientset()
-	action := NewDeletePodAction(client)
+	act := action.NewDeletePodAction(client)
 	if dryRun {
-		action = NewDryRunPodAction()
+		act = action.NewDryRunPodAction()
 	}
 
 	chaosSpec := &PodChaosSpec{
-		Action:      action,
+		Action:      act,
 		Labels:      labelSelector,
 		Annotations: annotations,
 		Namespaces:  namespaces,
