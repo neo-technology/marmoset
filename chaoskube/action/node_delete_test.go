@@ -39,4 +39,3 @@ func TestDeleteNodeAction(t *testing.T) {
 		t.Fatalf("Expected the extra node to not have been touched, but the surviving node is: %v", nodes.Items[0])
 	}
 }
-

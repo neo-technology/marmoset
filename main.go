@@ -59,6 +59,7 @@ const (
 	ACTION_DELETE_POD  = "delete-pod"
 	ACTION_EXEC_POD    = "exec-pod"
 	ACTION_DELETE_NODE = "delete-node"
+	ACTION_DRAIN_NODE  = "drain-node"
 )
 
 func init() {
@@ -77,7 +78,7 @@ func init() {
 	kingpin.Flag("interval", "Interval between Pod terminations").Default("10m").DurationVar(&interval)
 	kingpin.Flag("exec", "Command to use in 'exec' action").StringVar(&exec)
 	kingpin.Flag("exec-container", "Name of container to run --exec command in, defaults to first container in spec").Default("").StringVar(&execContainer)
-	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod, delete-node").Default(ACTION_DRY_RUN).StringVar(&actionName)
+	kingpin.Flag("action", "Type of action: dry-run, delete-pod, exec-pod, delete-node, drain-node").Default(ACTION_DRY_RUN).StringVar(&actionName)
 	kingpin.Flag("debug", "Enable debug logging.").BoolVar(&debug)
 	kingpin.Flag("log-format", "'plain' or 'json'").Default("plain").StringVar(&logFormat)
 	kingpin.Flag("log-fields", "key=value, comma separated list of fields to include in every log message").Default("").StringVar(&logFields)
@@ -206,6 +207,8 @@ func main() {
 		}
 	case ACTION_DELETE_NODE:
 		spec = chaoskube.NewNodeChaosSpec(action.NewDeleteNodeAction(), logger)
+	case ACTION_DRAIN_NODE:
+		spec = chaoskube.NewNodeChaosSpec(action.NewDrainNodeAction(), logger)
 	default:
 		panic(fmt.Sprintf("Unknown action: '%s'", actionName))
 	}
