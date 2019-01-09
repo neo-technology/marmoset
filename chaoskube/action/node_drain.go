@@ -106,14 +106,24 @@ func evictAllPodsOnNode(client kubernetes.Interface, victim *v1.Node) error {
 		return fmt.Errorf("unable to list pods: %s", err)
 	}
 
+	// Ignore daemon pods, because they are immediately rescheduled even on cordoned nodes;
+	// this mimics kubectl drain behavior
+	victims := make([]v1.Pod, 0, len(pods.Items))
 	for _, pod := range pods.Items {
+		if isDaemon(&pod) {
+			continue
+		}
+		victims = append(victims, pod)
+	}
+
+	for _, pod := range victims {
 		if err = evictPod(client, &pod); err != nil {
 			return fmt.Errorf("unable to evict pod %s: %s", pod.Name, err)
 		}
 	}
 
 	// Wait for evictions to take effect
-	if err = waitForDelete(client, pods.Items, 1*time.Minute, 10*time.Minute); err != nil {
+	if err = waitForDelete(client, victims, 1*time.Minute, 10*time.Minute); err != nil {
 		return err
 	}
 	return nil
@@ -137,7 +147,7 @@ func evictPod(client kubernetes.Interface, pod *v1.Pod) error {
 
 func waitForDelete(client kubernetes.Interface, pods []v1.Pod, interval, timeout time.Duration) error {
 	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		pendingPods := []v1.Pod{}
+		pendingPods := make([]v1.Pod, 0)
 		for i, pod := range pods {
 			p, err := client.CoreV1().Pods(pod.Namespace).Get(pod.Name, k8smeta.GetOptions{})
 			if errors.IsNotFound(err) || (p != nil && p.ObjectMeta.UID != pod.ObjectMeta.UID) {
@@ -169,4 +179,13 @@ func crashRecoverNodeDrain(client kubernetes.Interface) error {
 		}
 	}
 	return nil
+}
+
+func isDaemon(pod *v1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
 }

@@ -25,7 +25,17 @@ func TestDrainNode(t *testing.T) {
 		},
 	}
 	targetPod := newPodOnNode("p1", node.Name)
-	client := fixPolicyFake(fake.NewSimpleClientset(node, targetPod))
+
+	// We expect this to be ignored, since daemons ignore cordining and are immediately restarted
+	daemonPod := newPodOnNode("p2-daemon", node.Name)
+	daemonPod.OwnerReferences = []k8smeta.OwnerReference{
+		{
+			Kind: "DaemonSet",
+			Name: "p2-daemon",
+		},
+	}
+
+	client := fixPolicyFake(fake.NewSimpleClientset(node, targetPod, daemonPod))
 	client.Fake.PrependReactor("create", "pods", evictionReaction(client.Fake.ReactionChain[0].React))
 	act := action.NewDrainNodeAction()
 
