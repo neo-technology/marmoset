@@ -67,6 +67,12 @@ func New(client kubernetes.Interface, spec ChaosSpec, excludedWeekdays []time.We
 // Run continuously picks and terminates a victim pod at a given interval
 // described by channel next. It returns when the given context is canceled.
 func (c *Chaoskube) Run(ctx context.Context, next <-chan time.Time) {
+	initErr := c.Spec.Init(c.Client)
+	if initErr != nil {
+		c.Logger.WithField("err", initErr).Error("init failed")
+		return
+	}
+
 	for {
 		c.Logger.Debug("sleeping...")
 		select {

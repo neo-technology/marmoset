@@ -11,6 +11,9 @@ func NewDeleteNodeAction() NodeAction {
 
 type deleteNode struct{}
 
+func (s *deleteNode) Init(k8sclient kubernetes.Interface) error {
+	return nil
+}
 func (a *deleteNode) ApplyToNode(client kubernetes.Interface, victim *v1.Node) error {
 	return client.CoreV1().Nodes().Delete(victim.Name, nil)
 }

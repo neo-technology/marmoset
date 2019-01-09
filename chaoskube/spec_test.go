@@ -179,10 +179,45 @@ func TestNodeChaos(t *testing.T) {
 	}
 }
 
-type recordPodAction struct {
-	lastGivenPod *v1.Pod
+func TestNodeSpecInitDelegatesToActionInit(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	action := &recordNodeAction{}
+	spec := chaoskube.NodeChaosSpec{Action:action}
+
+	err := spec.Init(client)
+
+	if err != nil {
+		t.Errorf("Expected sunshine, got: %s", err)
+	}
+	if action.initCalledWithClient != client {
+		t.Errorf("Expected action init called with client, got %v", action.initCalledWithClient)
+	}
 }
 
+func TestPodSpecInitDelegatesToActionInit(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	action := &recordPodAction{}
+	spec := chaoskube.PodChaosSpec{Action:action}
+
+	err := spec.Init(client)
+
+	if err != nil {
+		t.Errorf("Expected sunshine, got: %s", err)
+	}
+	if action.initCalledWithClient != client {
+		t.Errorf("Expected action init called with client, got %v", action.initCalledWithClient)
+	}
+}
+
+type recordPodAction struct {
+	lastGivenPod *v1.Pod
+	initCalledWithClient kubernetes.Interface
+}
+
+func (a *recordPodAction) Init(k8sclient kubernetes.Interface) error {
+	a.initCalledWithClient = k8sclient
+	return nil
+}
 func (a *recordPodAction) ApplyToPod(victim v1.Pod) error {
 	a.lastGivenPod = &victim
 	return nil
@@ -193,8 +228,13 @@ func (a *recordPodAction) Name() string {
 
 type recordNodeAction struct {
 	lastGivenNode *v1.Node
+	initCalledWithClient kubernetes.Interface
 }
 
+func (a *recordNodeAction) Init(k8sclient kubernetes.Interface) error {
+	a.initCalledWithClient = k8sclient
+	return nil
+}
 func (a *recordNodeAction) ApplyToNode(client kubernetes.Interface, victim *v1.Node) error {
 	a.lastGivenNode = victim
 	return nil

@@ -23,9 +23,12 @@ func NewDrainNodeAction() NodeAction {
 
 type drainNode struct{}
 
+func (s *drainNode) Init(client kubernetes.Interface) error {
+	return crashRecoverNodeDrain(client)
+}
 func (a *drainNode) ApplyToNode(client kubernetes.Interface, victim *v1.Node) (err error) {
 	victim = victim.DeepCopy()
-	if err = crashRecovery(client); err != nil {
+	if err = crashRecoverNodeDrain(client); err != nil {
 		return err
 	}
 
@@ -133,7 +136,7 @@ func waitForDelete(client kubernetes.Interface, pods []v1.Pod, interval, timeout
 
 // To guard against us crashing in the middle of draining a node and not uncordoning it,
 // this finds any node with our marker label and uncordons them.
-func crashRecovery(client kubernetes.Interface) error {
+func crashRecoverNodeDrain(client kubernetes.Interface) error {
 	nodeList, err := client.CoreV1().Nodes().List(k8smeta.ListOptions{LabelSelector: fmt.Sprintf("%s=true", LabelMarmosetCordoned)})
 	if err != nil {
 		return err

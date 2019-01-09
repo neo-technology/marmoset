@@ -14,6 +14,9 @@ type deletePod struct {
 	client kubernetes.Interface
 }
 
+func (s *deletePod) Init(k8sclient kubernetes.Interface) error {
+	return nil
+}
 func (s *deletePod) ApplyToPod(victim v1.Pod) error {
 	return s.client.CoreV1().Pods(victim.Namespace).Delete(victim.Name, nil)
 }

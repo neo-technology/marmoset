@@ -120,6 +120,40 @@ func TestDrainNodeUncordonsAnyPartiallyDrainedNode(t *testing.T) {
 	}
 }
 
+func TestInitDrainNodeUncordonsAnyPartiallyDrainedNode(t *testing.T) {
+	leftCordoned := &v1.Node{
+		ObjectMeta: k8smeta.ObjectMeta{
+			Name:   "cordoned",
+			Labels: map[string]string{action.LabelMarmosetCordoned: "true"},
+		},
+		Spec: v1.NodeSpec{
+			Unschedulable: true,
+		},
+	}
+	client := fixPolicyFake(fake.NewSimpleClientset(leftCordoned))
+	act := action.NewDrainNodeAction()
+
+	// When I apply the drain action..
+	err := act.Init(client)
+	if err != nil {
+		t.Fatalf("ApplyToNode failed with: %s", err)
+	}
+
+	// Then the already cordoned node is found and uncordoned
+	actions := client.Fake.Actions()
+	patchNode := actions[1].(k8stesting.UpdateAction).GetObject().(*v1.Node)
+	if patchNode.Name != leftCordoned.Name {
+		t.Errorf("Expected %s to be uncordoned, got %v", leftCordoned.Name, patchNode)
+	}
+	if patchNode.Labels[action.LabelMarmosetCordoned] != "" {
+		t.Errorf("Expected node have label cleared, got %v", patchNode.Labels)
+	}
+	if patchNode.Spec.Unschedulable {
+		t.Errorf("Expected node to be made schedulable.")
+	}
+}
+
+
 func evictionReaction(defaultReaction k8stesting.ReactionFunc) k8stesting.ReactionFunc {
 	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
 		if !action.Matches("create", "pods") || action.GetSubresource() != "eviction" {

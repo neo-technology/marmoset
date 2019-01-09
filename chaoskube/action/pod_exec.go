@@ -3,6 +3,7 @@ package action
 import (
 	"fmt"
 	"k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -20,6 +21,10 @@ type execOnPod struct {
 
 	containerName string
 	command       []string
+}
+
+func (s *execOnPod) Init(k8sclient kubernetes.Interface) error {
+	return nil
 }
 
 // Based on https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/exec.go

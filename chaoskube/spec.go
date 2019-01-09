@@ -14,6 +14,8 @@ import (
 )
 
 type ChaosSpec interface {
+	// Ran once when the chaos monkey starts; for any one-time initialization
+	Init(k8sclient clientset.Interface) error
 	Apply(k8sclient clientset.Interface, now time.Time) error
 }
 
@@ -23,6 +25,10 @@ type NodeChaosSpec struct {
 	Action action.NodeAction
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
+}
+
+func (s *NodeChaosSpec) Init(k8sclient clientset.Interface) error {
+	return s.Action.Init(k8sclient)
 }
 
 func (s *NodeChaosSpec) Apply(client clientset.Interface, now time.Time) error {
@@ -78,6 +84,10 @@ type PodChaosSpec struct {
 	MinimumAge time.Duration
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
+}
+
+func (s *PodChaosSpec) Init(k8sclient clientset.Interface) error {
+	return s.Action.Init(k8sclient)
 }
 
 func (s *PodChaosSpec) Apply(client clientset.Interface, now time.Time) error {
