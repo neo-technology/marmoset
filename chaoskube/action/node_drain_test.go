@@ -1,10 +1,12 @@
 package action_test
 
 import (
+	"fmt"
 	"github.com/neo-technology/marmoset/chaoskube/action"
 	"github.com/neo-technology/marmoset/util"
 	"k8s.io/api/core/v1"
 	k8spolicy "k8s.io/api/policy/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	k8smeta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -80,6 +82,10 @@ func TestDrainNode(t *testing.T) {
 		t.Errorf("Expected node to be scheduleable.")
 	}
 	actionNo++
+
+	if len(actions) != actionNo {
+		t.Errorf("Expected %d actions, found %d. First additional: %v", actionNo, len(actions), actions[actionNo])
+	}
 }
 
 func TestDrainNodeUncordonsAnyPartiallyDrainedNode(t *testing.T) {
@@ -136,12 +142,13 @@ func TestInitDrainNodeUncordonsAnyPartiallyDrainedNode(t *testing.T) {
 	// When I apply the drain action..
 	err := act.Init(client)
 	if err != nil {
-		t.Fatalf("ApplyToNode failed with: %s", err)
+		t.Fatalf("Init failed with: %s", err)
 	}
 
 	// Then the already cordoned node is found and uncordoned
 	actions := client.Fake.Actions()
-	patchNode := actions[1].(k8stesting.UpdateAction).GetObject().(*v1.Node)
+	actionNo := 1
+	patchNode := actions[actionNo].(k8stesting.UpdateAction).GetObject().(*v1.Node)
 	if patchNode.Name != leftCordoned.Name {
 		t.Errorf("Expected %s to be uncordoned, got %v", leftCordoned.Name, patchNode)
 	}
@@ -151,8 +158,58 @@ func TestInitDrainNodeUncordonsAnyPartiallyDrainedNode(t *testing.T) {
 	if patchNode.Spec.Unschedulable {
 		t.Errorf("Expected node to be made schedulable.")
 	}
+	actionNo++
+
+	if len(actions) != actionNo {
+		t.Errorf("Expected %d actions, found %d. First additional: %v", actionNo, len(actions), actions[actionNo])
+	}
 }
 
+func TestUncordonHandlesOutOfDateNodeObject(t *testing.T) {
+	node := &v1.Node{
+		ObjectMeta: k8smeta.ObjectMeta{
+			Name:   "cordoned",
+			Labels: map[string]string{action.LabelMarmosetCordoned: "true"},
+		},
+		Spec: v1.NodeSpec{
+			Unschedulable: true,
+		},
+	}
+	client := fixPolicyFake(fake.NewSimpleClientset(node))
+	client.PrependReactor("update", "nodes", conflictOnFirstNodeUpdateReaction())
+	act := action.NewDrainNodeAction()
+
+	// When I apply the drain action..
+	err := act.Init(client)
+	if err != nil {
+		t.Fatalf("Init failed with: %s", err)
+	}
+
+	// Then it tries to update, fails, fetches the latest version and retries, succeeding
+	actions := client.Fake.Actions()
+	actionNo := 1
+	patchNode := actions[actionNo].(k8stesting.UpdateAction).GetObject().(*v1.Node)
+	if patchNode.Name != node.Name {
+		t.Errorf("Expected patch to node, got %v", patchNode)
+	}
+	actionNo++
+
+	getAction := actions[actionNo].(k8stesting.GetAction)
+	if getAction.GetName() != node.Name {
+		t.Errorf("Expected target of poll to be %s, found %v", node.Name, getAction)
+	}
+	actionNo++
+
+	patchNode = actions[actionNo].(k8stesting.UpdateAction).GetObject().(*v1.Node)
+	if patchNode.Name != node.Name {
+		t.Errorf("Expected patch to node, got %v", patchNode)
+	}
+	actionNo++
+
+	if len(actions) != actionNo {
+		t.Errorf("Expected %d actions, found %d. First additional: %v", actionNo, len(actions), actions[actionNo])
+	}
+}
 
 func evictionReaction(defaultReaction k8stesting.ReactionFunc) k8stesting.ReactionFunc {
 	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -163,6 +220,20 @@ func evictionReaction(defaultReaction k8stesting.ReactionFunc) k8stesting.Reacti
 		// Act by handling like a delete action
 		eviction := action.(k8stesting.CreateAction).GetObject().(*k8spolicy.Eviction)
 		return defaultReaction(k8stesting.NewDeleteAction(schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}, eviction.Namespace, eviction.Name))
+	}
+}
+
+func conflictOnFirstNodeUpdateReaction() k8stesting.ReactionFunc {
+	conflictTriggered := false
+	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+		if conflictTriggered || !action.Matches("update", "nodes") || action.GetSubresource() != "" {
+			return false, nil, nil
+		}
+
+		conflictTriggered = true
+		act := action.(k8stesting.UpdateAction)
+		return true, nil, errors.NewConflict(act.GetResource().GroupResource(), act.GetObject().(*v1.Node).Name,
+			fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"))
 	}
 }
 

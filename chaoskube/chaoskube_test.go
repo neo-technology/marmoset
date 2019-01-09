@@ -127,7 +127,7 @@ func (suite *Suite) TestDelay() {
 }
 
 type countingSpec struct {
-	counter uint64
+	counter       uint64
 	initCallCount uint64
 }
 
@@ -145,7 +145,6 @@ func (c *countingSpec) currentCount() uint64 {
 func (c *countingSpec) currentInitCount() uint64 {
 	return atomic.LoadUint64(&c.initCallCount)
 }
-
 
 func (suite *Suite) TestTerminateVictim() {
 	midnight := util.NewTimePeriod(

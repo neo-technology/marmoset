@@ -182,7 +182,7 @@ func TestNodeChaos(t *testing.T) {
 func TestNodeSpecInitDelegatesToActionInit(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	action := &recordNodeAction{}
-	spec := chaoskube.NodeChaosSpec{Action:action}
+	spec := chaoskube.NodeChaosSpec{Action: action}
 
 	err := spec.Init(client)
 
@@ -197,7 +197,7 @@ func TestNodeSpecInitDelegatesToActionInit(t *testing.T) {
 func TestPodSpecInitDelegatesToActionInit(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	action := &recordPodAction{}
-	spec := chaoskube.PodChaosSpec{Action:action}
+	spec := chaoskube.PodChaosSpec{Action: action}
 
 	err := spec.Init(client)
 
@@ -210,7 +210,7 @@ func TestPodSpecInitDelegatesToActionInit(t *testing.T) {
 }
 
 type recordPodAction struct {
-	lastGivenPod *v1.Pod
+	lastGivenPod         *v1.Pod
 	initCalledWithClient kubernetes.Interface
 }
 
@@ -227,7 +227,7 @@ func (a *recordPodAction) Name() string {
 }
 
 type recordNodeAction struct {
-	lastGivenNode *v1.Node
+	lastGivenNode        *v1.Node
 	initCalledWithClient kubernetes.Interface
 }
 

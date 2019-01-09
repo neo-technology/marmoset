@@ -34,7 +34,7 @@ func (a *drainNode) ApplyToNode(client kubernetes.Interface, victim *v1.Node) (e
 
 	// No matter what, try to uncordon the node before we're done here
 	defer func() {
-		deferErr := uncordonNode(client, victim)
+		_, deferErr := uncordonNode(client, victim)
 		// If there's no other error, set the return error to be whatever the outcome
 		// of the uncordon was; otherwise don't overwrite any prior error.
 		if err == nil {
@@ -60,19 +60,41 @@ func (a *drainNode) Name() string {
 }
 
 func cordonNode(client kubernetes.Interface, victim *v1.Node) (*v1.Node, error) {
-	if victim.Labels == nil {
-		victim.Labels = make(map[string]string, 0)
-	}
-	victim.Labels[LabelMarmosetCordoned] = "true"
-	victim.Spec.Unschedulable = true
-	return client.CoreV1().Nodes().Update(victim)
+	return updateNode(client, victim, func(node *v1.Node) {
+		if node.Labels == nil {
+			node.Labels = make(map[string]string, 0)
+		}
+		node.Labels[LabelMarmosetCordoned] = "true"
+		node.Spec.Unschedulable = true
+	})
 }
 
-func uncordonNode(client kubernetes.Interface, victim *v1.Node) error {
-	delete(victim.Labels, LabelMarmosetCordoned)
-	victim.Spec.Unschedulable = false
-	_, err := client.CoreV1().Nodes().Update(victim)
-	return err
+func uncordonNode(client kubernetes.Interface, victim *v1.Node) (*v1.Node, error) {
+	return updateNode(client, victim, func(node *v1.Node) {
+		delete(node.Labels, LabelMarmosetCordoned)
+		node.Spec.Unschedulable = false
+	})
+}
+
+// update with retry-on-out-of-date
+func updateNode(client kubernetes.Interface, node *v1.Node, changes func(*v1.Node)) (*v1.Node, error) {
+	for tries := 0; ; tries++ {
+		changes(node)
+		newNode, err := client.CoreV1().Nodes().Update(node)
+		if err == nil {
+			return newNode, nil
+		}
+
+		if !errors.IsConflict(err) || tries > 4 {
+			return nil, err
+		}
+
+		// Fetch the latest version and try again
+		node, err = client.CoreV1().Nodes().Get(node.Name, k8smeta.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 // Evict all pods on the given node, respecting PDBs etc.
@@ -142,7 +164,7 @@ func crashRecoverNodeDrain(client kubernetes.Interface) error {
 		return err
 	}
 	for _, node := range nodeList.Items {
-		if err = uncordonNode(client, &node); err != nil {
+		if _, err = uncordonNode(client, &node); err != nil {
 			return err
 		}
 	}
