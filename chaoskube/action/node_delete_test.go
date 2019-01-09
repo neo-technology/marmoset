@@ -1,7 +1,7 @@
-package chaoskube_test
+package action_test
 
 import (
-	"github.com/neo-technology/marmoset/chaoskube"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	"k8s.io/api/core/v1"
 	k8smeta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -20,9 +20,9 @@ func TestDeleteNodeAction(t *testing.T) {
 		},
 	}
 	client := fake.NewSimpleClientset(node, noTouching)
-	action := chaoskube.NewDeleteNodeAction()
+	act := action.NewDeleteNodeAction()
 
-	err := action.ApplyToNode(client, node)
+	err := act.ApplyToNode(client, node)
 
 	if err != nil {
 		t.Fatalf("Expected smooth sailing, got: %s", err)

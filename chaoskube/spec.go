@@ -2,6 +2,7 @@ package chaoskube
 
 import (
 	"fmt"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,15 +14,21 @@ import (
 )
 
 type ChaosSpec interface {
+	// Ran once when the chaos monkey starts; for any one-time initialization
+	Init(k8sclient clientset.Interface) error
 	Apply(k8sclient clientset.Interface, now time.Time) error
 }
 
 // == Node chaos ==
 
 type NodeChaosSpec struct {
-	Action NodeAction
+	Action action.NodeAction
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
+}
+
+func (s *NodeChaosSpec) Init(k8sclient clientset.Interface) error {
+	return s.Action.Init(k8sclient)
 }
 
 func (s *NodeChaosSpec) Apply(client clientset.Interface, now time.Time) error {
@@ -56,7 +63,7 @@ func (s *NodeChaosSpec) candidates(client clientset.Interface, now time.Time) ([
 	return nodes, nil
 }
 
-func NewNodeChaosSpec(action NodeAction, logger log.FieldLogger) ChaosSpec {
+func NewNodeChaosSpec(action action.NodeAction, logger log.FieldLogger) ChaosSpec {
 	return &NodeChaosSpec{
 		Action: action,
 		Logger: logger,
@@ -66,7 +73,7 @@ func NewNodeChaosSpec(action NodeAction, logger log.FieldLogger) ChaosSpec {
 // == Pod chaos ==
 
 type PodChaosSpec struct {
-	Action PodAction
+	Action action.PodAction
 	// a label selector which restricts the pods to choose from
 	Labels labels.Selector
 	// an annotation selector which restricts the pods to choose from
@@ -77,6 +84,10 @@ type PodChaosSpec struct {
 	MinimumAge time.Duration
 	// an instance of logrus.StdLogger to write log messages to
 	Logger log.FieldLogger
+}
+
+func (s *PodChaosSpec) Init(k8sclient clientset.Interface) error {
+	return s.Action.Init(k8sclient)
 }
 
 func (s *PodChaosSpec) Apply(client clientset.Interface, now time.Time) error {
@@ -121,7 +132,7 @@ func (s *PodChaosSpec) candidates(client clientset.Interface, now time.Time) ([]
 	return pods, nil
 }
 
-func NewPodChaosSpec(action PodAction, labels, annotations, namespaces labels.Selector, minimumAge time.Duration,
+func NewPodChaosSpec(action action.PodAction, labels, annotations, namespaces labels.Selector, minimumAge time.Duration,
 	logger log.FieldLogger) ChaosSpec {
 	return &PodChaosSpec{
 		Action:      action,

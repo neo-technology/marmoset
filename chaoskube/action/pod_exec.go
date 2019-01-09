@@ -1,4 +1,4 @@
-package chaoskube
+package action
 
 import (
 	"fmt"
@@ -10,67 +10,9 @@ import (
 	"os"
 )
 
-type NodeAction interface {
-	// Imbue chaos in the given victim
-	ApplyToNode(client kubernetes.Interface, victim *v1.Node) error
-	// Name of this action, ideally a verb - like "terminate pod"
-	Name() string
-}
-
-func NewDeleteNodeAction() NodeAction {
-	return &deleteNode{}
-}
-
-type deleteNode struct{}
-
-func (a *deleteNode) ApplyToNode(client kubernetes.Interface, victim *v1.Node) error {
-	return client.CoreV1().Nodes().Delete(victim.Name, nil)
-}
-func (a *deleteNode) Name() string {
-	return "delete node"
-}
-
-type PodAction interface {
-	// Imbue chaos in the given victim
-	ApplyToPod(victim v1.Pod) error
-	// Name of this action, ideally a verb - like "terminate pod"
-	Name() string
-}
-
-func NewDryRunPodAction() PodAction {
-	return &podDryRun{}
-}
-
-func NewDeletePodAction(client kubernetes.Interface) PodAction {
-	return &deletePod{client}
-}
-
 func NewExecAction(client restclient.Interface, config *restclient.Config, containerName string, command []string) PodAction {
 	return &execOnPod{client, config, containerName, command}
 }
-
-// no-op
-type podDryRun struct {
-}
-
-func (s *podDryRun) ApplyToPod(victim v1.Pod) error {
-	return nil
-}
-func (s *podDryRun) Name() string { return "dry run" }
-
-var _ PodAction = &podDryRun{}
-
-// Simply ask k8s to delete the victim pod
-type deletePod struct {
-	client kubernetes.Interface
-}
-
-func (s *deletePod) ApplyToPod(victim v1.Pod) error {
-	return s.client.CoreV1().Pods(victim.Namespace).Delete(victim.Name, nil)
-}
-func (s *deletePod) Name() string { return "delete pod" }
-
-var _ PodAction = &deletePod{}
 
 // Execute the given command on victim pods
 type execOnPod struct {
@@ -79,6 +21,10 @@ type execOnPod struct {
 
 	containerName string
 	command       []string
+}
+
+func (s *execOnPod) Init(k8sclient kubernetes.Interface) error {
+	return nil
 }
 
 // Based on https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/exec.go

@@ -2,6 +2,7 @@ package chaoskube
 
 import (
 	"context"
+	"github.com/neo-technology/marmoset/chaoskube/action"
 	"github.com/neo-technology/marmoset/util"
 	"sync/atomic"
 	"testing"
@@ -103,29 +104,46 @@ func (suite *Suite) TestDelay() {
 
 	go chaoskube.Run(ctx, timer)
 
+	// Then..
+	deadline := time.Now().Add(1 * time.Minute)
+
+	// Init should get called eventually
+	for counter.currentInitCount() != uint64(1) && time.Now().Before(deadline) {
+		time.Sleep(1 * time.Millisecond)
+	}
+
 	// The spec should be invoked once for each time interval we send, and it should
 	// *wait* for the first interval; otherwise if the chaos monkey kills itself we could
 	// end up rapid-cycling, bypassing the timer interval.
-	deadline := time.Now().Add(1 * time.Minute)
 	for i := 0; i < 10; i++ {
 		for counter.currentCount() != uint64(i) && time.Now().Before(deadline) {
 			time.Sleep(1 * time.Millisecond)
 		}
 		suite.Require().Equal(uint64(i), counter.currentCount())
+		// and init should never get called beyond the first call
+		suite.Require().Equal(uint64(1), counter.currentInitCount())
 		timer <- time.Now()
 	}
 }
 
 type countingSpec struct {
-	counter uint64
+	counter       uint64
+	initCallCount uint64
 }
 
+func (c *countingSpec) Init(k8sclient clientset.Interface) error {
+	atomic.AddUint64(&c.initCallCount, 1)
+	return nil
+}
 func (c *countingSpec) Apply(k8sclient clientset.Interface, now time.Time) error {
 	atomic.AddUint64(&c.counter, 1)
 	return nil
 }
 func (c *countingSpec) currentCount() uint64 {
 	return atomic.LoadUint64(&c.counter)
+}
+func (c *countingSpec) currentInitCount() uint64 {
+	return atomic.LoadUint64(&c.initCallCount)
 }
 
 func (suite *Suite) TestTerminateVictim() {
@@ -417,6 +435,10 @@ type chaosRecorder struct {
 	invoked bool
 }
 
+func (r *chaosRecorder) Init(k8sclient clientset.Interface) error {
+	return nil
+}
+
 func (r *chaosRecorder) Apply(k8sclient clientset.Interface, now time.Time) error {
 	r.invoked = true
 	return nil
@@ -479,13 +501,13 @@ func (suite *Suite) setup(labelSelector labels.Selector, annotations labels.Sele
 	logOutput.Reset()
 
 	client := fake.NewSimpleClientset()
-	action := NewDeletePodAction(client)
+	act := action.NewDeletePodAction(client)
 	if dryRun {
-		action = NewDryRunPodAction()
+		act = action.NewDryRunPodAction()
 	}
 
 	chaosSpec := &PodChaosSpec{
-		Action:      action,
+		Action:      act,
 		Labels:      labelSelector,
 		Annotations: annotations,
 		Namespaces:  namespaces,
